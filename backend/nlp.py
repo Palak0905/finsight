@@ -1,7 +1,7 @@
 import requests
 import os
 
-HF_TOKEN = os.environ.get("HF_TOKEN", "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")
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
 API_URL = "https://api-inference.huggingface.co/models/ProsusAI/finbert"
 HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
