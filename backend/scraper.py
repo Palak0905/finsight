@@ -3,25 +3,41 @@ from bs4 import BeautifulSoup
 import time
 
 HEADERS = {"User-Agent": "FinSight research tool palak@example.com"}
-BASE_URL = "https://efts.sec.gov/LATEST/search-index?q=%22earnings+call%22&dateRange=custom"
+
+# Hardcoded CIK map for common tickers (fast + reliable fallback)
+KNOWN_CIKS = {
+    "AAPL":  "0000320193",
+    "MSFT":  "0000789019",
+    "GOOGL": "0001652044",
+    "GOOG":  "0001652044",
+    "TSLA":  "0001318605",
+    "NVDA":  "0001045810",
+    "AMZN":  "0001018724",
+    "META":  "0001326801",
+    "NFLX":  "0001065280",
+    "AMD":   "0000002488",
+}
 
 def get_cik(ticker: str) -> str:
     """Get SEC CIK number for a ticker symbol."""
-    url = f"https://efts.sec.gov/LATEST/search-index?q=%22{ticker}%22&category=form-type&dateRange=custom"
-    r = requests.get(
-        f"https://data.sec.gov/submissions/CIK{ticker}.json",
-        headers=HEADERS, timeout=10
-    )
-    # Try ticker → CIK mapping
+    ticker = ticker.upper()
+
+    # Check hardcoded map first (instant)
+    if ticker in KNOWN_CIKS:
+        return KNOWN_CIKS[ticker]
+
+    # Fallback: search SEC company tickers JSON
     mapping_url = "https://www.sec.gov/files/company_tickers.json"
     resp = requests.get(mapping_url, headers=HEADERS, timeout=10)
     resp.raise_for_status()
     data = resp.json()
     for entry in data.values():
-        if entry.get("ticker", "").upper() == ticker.upper():
+        if entry.get("ticker", "").upper() == ticker:
             cik = str(entry["cik_str"]).zfill(10)
             return cik
-    raise ValueError(f"CIK not found for ticker: {ticker}")
+
+    raise ValueError(f"CIK not found for ticker: {ticker}. Try AAPL, MSFT, GOOGL, TSLA, NVDA, AMZN, META.")
+
 
 def fetch_edgar_transcripts(ticker: str, limit: int = 5) -> list:
     """
@@ -55,7 +71,6 @@ def fetch_edgar_transcripts(ticker: str, limit: int = 5) -> list:
         try:
             idx_resp = requests.get(index_url, headers=HEADERS, timeout=10)
             soup = BeautifulSoup(idx_resp.text, "lxml")
-            # Find the primary document link
             doc_link = None
             for a in soup.find_all("a", href=True):
                 href = a["href"]
@@ -67,17 +82,15 @@ def fetch_edgar_transcripts(ticker: str, limit: int = 5) -> list:
 
             doc_resp = requests.get(doc_link, headers=HEADERS, timeout=15)
             doc_soup = BeautifulSoup(doc_resp.text, "lxml")
-            # Extract readable text
             for tag in doc_soup(["script", "style", "table"]):
                 tag.decompose()
             text = doc_soup.get_text(separator=" ", strip=True)
-            # Keep first 8000 chars for NLP (enough for sentiment)
             text = " ".join(text.split())[:8000]
 
             if len(text) > 200:
                 results.append({"text": text, "date": date, "type": form})
                 count += 1
-            time.sleep(0.5)  # Be polite to SEC servers
+            time.sleep(0.5)
         except Exception:
             continue
 
