@@ -1,13 +1,14 @@
 fastapi
 uvicorn
 python-multipart
-pdfminer.six
+pdfminer.six==20221105
 requests
 beautifulsoup4
-pandas
-numpy
+pandas>=1.5.0
+numpy>=1.23.0
 yfinance
 transformers
+torch --index-url https://download.pytorch.org/whl/cpu
 scikit-learn
 scipy
 matplotlib
