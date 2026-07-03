@@ -8,7 +8,6 @@ pandas
 numpy
 yfinance
 transformers
-torch
 scikit-learn
 scipy
 matplotlib

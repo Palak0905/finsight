@@ -1,60 +1,45 @@
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-import torch
-import re
+from transformers import pipeline
+import os
 
-# ─── Load FinBERT model (downloads once, cached after) ────────────────────────
-MODEL_NAME = "ProsusAI/finbert"
 _pipeline = None
 
 def get_pipeline():
     global _pipeline
     if _pipeline is None:
-        print("Loading FinBERT model... (first time takes ~1 min)")
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+        print("Loading sentiment model...")
         _pipeline = pipeline(
             "text-classification",
-            model=model,
-            tokenizer=tokenizer,
-            device=0 if torch.cuda.is_available() else -1,
-            top_k=None  # return all labels
+            model="cardiffnlp/twitter-roberta-base-sentiment-latest",
+            top_k=None
         )
-        print("FinBERT loaded!")
+        print("Model loaded!")
     return _pipeline
 
-# ─── Risk keyword list ─────────────────────────────────────────────────────────
 RISK_KEYWORDS = [
     "risk", "uncertainty", "decline", "loss", "headwind", "challenge",
     "pressure", "concern", "volatile", "downturn", "slowdown", "miss",
     "below expectations", "supply chain", "inflation", "recession"
 ]
-
 POSITIVE_KEYWORDS = [
     "growth", "record", "exceed", "strong", "beat", "momentum",
     "expansion", "profitable", "raised guidance", "outperform",
     "robust", "acceleration", "ahead of expectations"
 ]
-
 GUIDANCE_PHRASES = [
     "we expect", "we anticipate", "guidance", "outlook", "forecast",
     "next quarter", "full year", "going forward", "we project"
 ]
 
-def chunk_text(text: str, max_tokens: int = 400) -> list:
-    """Split text into chunks of ~400 words for FinBERT."""
+def chunk_text(text: str, max_words: int = 300) -> list:
     words = text.split()
     chunks = []
-    for i in range(0, len(words), max_tokens):
-        chunk = " ".join(words[i:i + max_tokens])
+    for i in range(0, len(words), max_words):
+        chunk = " ".join(words[i:i + max_words])
         if len(chunk.strip()) > 20:
             chunks.append(chunk)
-    return chunks[:10]  # Max 10 chunks
+    return chunks[:5]
 
 def analyze_sentiment(text: str) -> dict:
-    """
-    Run FinBERT on text chunks and return aggregated sentiment analysis.
-    Returns: score (-1 to +1), label, confidence, keywords, guidance
-    """
     nlp = get_pipeline()
     chunks = chunk_text(text)
 
@@ -66,13 +51,13 @@ def analyze_sentiment(text: str) -> dict:
 
     for chunk in chunks:
         try:
-            result = nlp(chunk[:512])[0]  # FinBERT max 512 tokens
+            result = nlp(chunk[:512])[0]
             for item in result:
                 label = item["label"].lower()
                 score = item["score"]
-                if label == "positive":
+                if "pos" in label:
                     pos_scores.append(score)
-                elif label == "negative":
+                elif "neg" in label:
                     neg_scores.append(score)
                 else:
                     neu_scores.append(score)
@@ -83,7 +68,6 @@ def analyze_sentiment(text: str) -> dict:
     avg_neg = sum(neg_scores) / len(neg_scores) if neg_scores else 0
     avg_neu = sum(neu_scores) / len(neu_scores) if neu_scores else 0
 
-    # Composite score: -1 (very negative) to +1 (very positive)
     composite_score = round(avg_pos - avg_neg, 4)
 
     if composite_score > 0.1:
@@ -96,7 +80,6 @@ def analyze_sentiment(text: str) -> dict:
         label = "neutral"
         confidence = round(avg_neu * 100, 1)
 
-    # Extract keywords
     text_lower = text.lower()
     found_risks = [kw for kw in RISK_KEYWORDS if kw in text_lower][:6]
     found_positives = [kw for kw in POSITIVE_KEYWORDS if kw in text_lower][:6]
