@@ -7,8 +7,6 @@ beautifulsoup4
 pandas>=1.5.0
 numpy>=1.23.0
 yfinance
-transformers
-torch --index-url https://download.pytorch.org/whl/cpu
 scikit-learn
 scipy
 matplotlib
