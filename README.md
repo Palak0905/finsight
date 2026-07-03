@@ -2,6 +2,9 @@
 
 FinSight uses **FinBERT** (a finance-trained NLP model) to analyze earnings call transcripts from SEC EDGAR, extract sentiment signals, and correlate them with stock price movements.
 
+Live Demo:
+https://finsight-uy6z.onrender.com
+
 
  Features
 
