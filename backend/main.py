@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import uvicorn
 import os
 
@@ -19,60 +19,62 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve frontend static files
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 @app.get("/")
 def serve_home():
     return FileResponse("frontend/index.html")
 
-# ─── ROUTE 1: Analyze uploaded PDF ───────────────────────────────────────────
 @app.post("/api/analyze-pdf")
 async def analyze_pdf(file: UploadFile = File(...)):
-    if not file.filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files accepted")
-    
-    contents = await file.read()
-    text = extract_text_from_pdf(contents)
-    
-    if not text or len(text.strip()) < 100:
-        raise HTTPException(status_code=422, detail="Could not extract text from PDF")
-    
-    result = analyze_sentiment(text)
-    return {"filename": file.filename, "analysis": result}
+    try:
+        if not file.filename.endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Only PDF files accepted")
+        contents = await file.read()
+        text = extract_text_from_pdf(contents)
+        if not text or len(text.strip()) < 100:
+            raise HTTPException(status_code=422, detail="Could not extract text from PDF")
+        result = analyze_sentiment(text)
+        return {"filename": file.filename, "analysis": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"detail": str(e)})
 
-# ─── ROUTE 2: Analyze by ticker (fetch from EDGAR) ────────────────────────────
 @app.get("/api/analyze-ticker/{ticker}")
 def analyze_ticker(ticker: str):
-    ticker = ticker.upper().strip()
     try:
-        transcripts = fetch_edgar_transcripts(ticker, limit=5)
+        ticker = ticker.upper().strip()
+        transcripts = fetch_edgar_transcripts(ticker, limit=2)
+        if not transcripts:
+            raise HTTPException(status_code=404, detail=f"No filings found for {ticker}")
+        results = []
+        for t in transcripts:
+            try:
+                sentiment = analyze_sentiment(t["text"])
+                stock_data = get_stock_data(ticker, t["date"])
+                correlation = correlate_signal(sentiment["score"], stock_data)
+                results.append({
+                    "date": t["date"],
+                    "filing_type": t["type"],
+                    "sentiment": sentiment,
+                    "stock": stock_data,
+                    "correlation": correlation
+                })
+            except Exception as e:
+                continue
+        if not results:
+            raise HTTPException(status_code=500, detail="Analysis failed for all filings")
+        return {"ticker": ticker, "results": results}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Could not fetch data for {ticker}: {str(e)}")
-    
-    if not transcripts:
-        raise HTTPException(status_code=404, detail=f"No filings found for {ticker}")
-    
-    results = []
-    for t in transcripts:
-        sentiment = analyze_sentiment(t["text"])
-        stock_data = get_stock_data(ticker, t["date"])
-        correlation = correlate_signal(sentiment["score"], stock_data)
-        results.append({
-            "date": t["date"],
-            "filing_type": t["type"],
-            "sentiment": sentiment,
-            "stock": stock_data,
-            "correlation": correlation
-        })
-    
-    return {"ticker": ticker, "results": results}
+        return JSONResponse(status_code=500, content={"detail": str(e)})
 
-# ─── ROUTE 3: Get stock chart data ───────────────────────────────────────────
 @app.get("/api/stock/{ticker}")
 def stock_chart(ticker: str, period: str = "1y"):
-    ticker = ticker.upper().strip()
     try:
+        ticker = ticker.upper().strip()
         import yfinance as yf
         hist = yf.Ticker(ticker).history(period=period)
         if hist.empty:
@@ -82,10 +84,11 @@ def stock_chart(ticker: str, period: str = "1y"):
             for d, c in zip(hist.index, hist["Close"])
         ]
         return {"ticker": ticker, "history": data}
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(status_code=500, content={"detail": str(e)})
 
-# ─── ROUTE 4: Health check ────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
     return {"status": "ok", "message": "FinSight is running"}
