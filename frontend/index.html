@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FinSight — Earnings Call Analyzer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+      --border: #2e3250; --accent: #4f8ef7; --accent2: #7c5cfc;
+      --green: #22c55e; --red: #ef4444; --yellow: #f59e0b;
+      --text: #e8eaf6; --muted: #7b82a8; --font: 'Segoe UI', system-ui, sans-serif;
+    }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+    /* NAV */
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px;
+      background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+    .logo { font-size: 20px; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .nav-sub { font-size: 13px; color: var(--muted); }
+
+    /* HERO */
+    .hero { text-align: center; padding: 60px 24px 40px; }
+    .hero h1 { font-size: clamp(28px, 5vw, 48px); font-weight: 700; line-height: 1.2; margin-bottom: 14px; }
+    .hero h1 span { background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero p { font-size: 16px; color: var(--muted); max-width: 560px; margin: 0 auto 32px; line-height: 1.6; }
+
+    /* TABS */
+    .tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 32px; }
+    .tab-btn { padding: 10px 22px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--muted); font-size: 14px; cursor: pointer; transition: all 0.2s; }
+    .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* MAIN CARD */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+      padding: 28px; max-width: 720px; margin: 0 auto 24px; }
+    .card h2 { font-size: 17px; font-weight: 600; margin-bottom: 18px; }
+
+    /* TICKER INPUT */
+    .input-row { display: flex; gap: 10px; }
+    .input-row input { flex: 1; padding: 12px 16px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; color: var(--text); font-size: 15px; outline: none; transition: border 0.2s; }
+    .input-row input:focus { border-color: var(--accent); }
+    .btn { padding: 12px 24px; background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; border: none; border-radius: 10px; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: opacity 0.2s; white-space: nowrap; }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* UPLOAD ZONE */
+    .upload-zone { border: 2px dashed var(--border); border-radius: 12px; padding: 40px 24px;
+      text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+    .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); background: rgba(79,142,247,0.05); }
+    .upload-zone input { display: none; }
+    .upload-icon { font-size: 36px; margin-bottom: 10px; }
+    .upload-zone p { color: var(--muted); font-size: 14px; }
+    .upload-zone .filename { color: var(--accent); font-weight: 600; margin-top: 8px; font-size: 14px; }
+
+    /* LOADER */
+    .loader { display: none; text-align: center; padding: 32px; }
+    .spinner { width: 40px; height: 40px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loader p { color: var(--muted); font-size: 14px; }
+
+    /* RESULTS */
+    .results { display: none; }
+    .score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .score-box { background: var(--surface2); border-radius: 12px; padding: 16px; text-align: center; border: 1px solid var(--border); }
+    .score-box .val { font-size: 28px; font-weight: 700; }
+    .score-box .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .positive { color: var(--green); }
+    .negative { color: var(--red); }
+    .neutral { color: var(--yellow); }
+
+    /* KEYWORD PILLS */
+    .pill-section { margin-bottom: 18px; }
+    .pill-section h3 { font-size: 13px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill { font-size: 12px; padding: 4px 10px; border-radius: 20px; font-weight: 500; }
+    .pill-risk { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+    .pill-pos { background: rgba(34,197,94,0.15); color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
+    .pill-guide { background: rgba(79,142,247,0.15); color: #93c5fd; border: 1px solid rgba(79,142,247,0.3); }
+
+    /* CHARTS */
+    .chart-wrap { background: var(--surface2); border-radius: 12px; padding: 18px; margin-bottom: 18px; border: 1px solid var(--border); }
+    .chart-wrap h3 { font-size: 14px; font-weight: 600; margin-bottom: 14px; }
+    canvas { max-height: 220px; }
+
+    /* STOCK SECTION */
+    .stock-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+    .stock-box { background: var(--surface2); border-radius: 10px; padding: 14px; text-align: center; border: 1px solid var(--border); }
+    .stock-box .sval { font-size: 20px; font-weight: 700; }
+    .stock-box .slbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* FILING CARDS */
+    .filing-card { background: var(--surface2); border-radius: 12px; padding: 16px; margin-bottom: 12px; border: 1px solid var(--border); }
+    .filing-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .filing-badge { font-size: 11px; padding: 3px 8px; border-radius: 6px; background: rgba(79,142,247,0.2); color: var(--accent); font-weight: 600; }
+    .filing-date { font-size: 12px; color: var(--muted); }
+    .verdict-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+    .verdict-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    /* SECTION TITLE */
+    .section-title { font-size: 15px; font-weight: 600; margin-bottom: 14px; color: var(--text); }
+
+    /* EXAMPLE TICKERS */
+    .examples { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .ex-btn { font-size: 12px; padding: 5px 12px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 20px; color: var(--muted); cursor: pointer; transition: all 0.2s; }
+    .ex-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ERROR */
+    .error-box { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 10px; padding: 14px; color: #fca5a5; font-size: 14px; text-align: center; display: none; }
+
+    /* RESPONSIVE */
+    @media (max-width: 600px) {
+      nav { padding: 14px 16px; }
+      .hero { padding: 40px 16px 28px; }
+      .card { padding: 18px 14px; margin: 0 12px 16px; }
+      .input-row { flex-direction: column; }
+      .stock-grid { grid-template-columns: repeat(3,1fr); gap: 6px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">📈 FinSight</div>
+  <div class="nav-sub">AI Earnings Call Analyzer</div>
+</nav>
+
+<div class="hero">
+  <h1>Decode <span>Earnings Calls</span><br>with AI</h1>
+  <p>FinSight uses FinBERT — a finance-trained AI — to extract sentiment, risks, and forward guidance from earnings transcripts, then correlates findings with stock movements.</p>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('ticker')">🔍 By Ticker</button>
+  <button class="tab-btn" onclick="switchTab('pdf')">📄 Upload PDF</button>
+</div>
+
+<!-- TICKER TAB -->
+<div id="tab-ticker" class="card">
+  <h2>Analyze by Stock Ticker</h2>
+  <div class="input-row">
+    <input type="text" id="ticker-input" placeholder="e.g. AAPL, MSFT, GOOGL" maxlength="10" />
+    <button class="btn" id="ticker-btn" onclick="analyzeTicker()">Analyze</button>
+  </div>
+  <div class="examples">
+    <span>Try:</span>
+    <button class="ex-btn" onclick="setTicker('AAPL')">AAPL</button>
+    <button class="ex-btn" onclick="setTicker('MSFT')">MSFT</button>
+    <button class="ex-btn" onclick="setTicker('GOOGL')">GOOGL</button>
+    <button class="ex-btn" onclick="setTicker('TSLA')">TSLA</button>
+    <button class="ex-btn" onclick="setTicker('NVDA')">NVDA</button>
+  </div>
+</div>
+
+<!-- PDF TAB -->
+<div id="tab-pdf" class="card" style="display:none">
+  <h2>Upload Earnings PDF</h2>
+  <div class="upload-zone" id="drop-zone" onclick="document.getElementById('pdf-input').click()"
+    ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropFile(event)">
+    <input type="file" id="pdf-input" accept=".pdf" onchange="pdfSelected(event)" />
+    <div class="upload-icon">📂</div>
+    <p>Drag & drop an earnings PDF here<br>or click to browse</p>
+    <div class="filename" id="pdf-name"></div>
+  </div>
+  <button class="btn" id="pdf-btn" onclick="analyzePDF()" style="margin-top:14px;width:100%;display:none">
+    Analyze PDF
+  </button>
+</div>
+
+<!-- LOADER -->
+<div class="loader" id="loader">
+  <div class="spinner"></div>
+  <p id="loader-text">Fetching SEC filings...</p>
+</div>
+
+<!-- ERROR -->
+<div class="error-box" id="error-box"></div>
+
+<!-- RESULTS -->
+<div class="results" id="results">
+  <!-- Single PDF result -->
+  <div id="pdf-result" style="display:none">
+    <div class="card">
+      <div class="section-title">Sentiment Analysis</div>
+      <div class="score-grid" id="pdf-scores"></div>
+      <div class="chart-wrap">
+        <h3>Sentiment Breakdown</h3>
+        <canvas id="pdf-chart"></canvas>
+      </div>
+      <div class="pill-section" id="pdf-risks"></div>
+      <div class="pill-section" id="pdf-positives"></div>
+      <div class="pill-section" id="pdf-guidance"></div>
+    </div>
+  </div>
+
+  <!-- Ticker result -->
+  <div id="ticker-result" style="display:none">
+    <div class="card">
+      <div class="section-title" id="ticker-title"></div>
+
+      <!-- Stock chart -->
+      <div class="chart-wrap">
+        <h3>Stock Price (1 Year)</h3>
+        <canvas id="stock-chart"></canvas>
+      </div>
+
+      <!-- Sentiment trend chart -->
+      <div class="chart-wrap">
+        <h3>Sentiment Score Across Filings</h3>
+        <canvas id="sentiment-trend-chart"></canvas>
+      </div>
+
+      <!-- Filing cards -->
+      <div class="section-title" style="margin-top:20px">Filing Analysis</div>
+      <div id="filing-cards"></div>
+    </div>
+  </div>
+</div>
+
+<div style="height:60px"></div>
+
+<script>
+  const API = "";  // Same origin
+  let pdfFile = null;
+  let stockChartInst = null;
+  let sentimentChartInst = null;
+  let pdfChartInst = null;
+
+  // ─── TAB SWITCHING ─────────────────────────────────────────────────────────
+  function switchTab(tab) {
+    document.querySelectorAll(".tab-btn").forEach((b,i) => {
+      b.classList.toggle("active", (tab==="ticker" && i===0)||(tab==="pdf" && i===1));
+    });
+    document.getElementById("tab-ticker").style.display = tab==="ticker" ? "" : "none";
+    document.getElementById("tab-pdf").style.display   = tab==="pdf"    ? "" : "none";
+    hideResults();
+  }
+
+  function setTicker(t) {
+    document.getElementById("ticker-input").value = t;
+  }
+
+  // ─── UPLOAD ────────────────────────────────────────────────────────────────
+  function dragOver(e) { e.preventDefault(); document.getElementById("drop-zone").classList.add("dragover"); }
+  function dragLeave(e) { document.getElementById("drop-zone").classList.remove("dragover"); }
+  function dropFile(e) {
+    e.preventDefault();
+    dragLeave(e);
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith(".pdf")) setPDFFile(file);
+  }
+  function pdfSelected(e) { setPDFFile(e.target.files[0]); }
+  function setPDFFile(file) {
+    pdfFile = file;
+    document.getElementById("pdf-name").textContent = "📄 " + file.name;
+    document.getElementById("pdf-btn").style.display = "block";
+  }
+
+  // ─── SHOW / HIDE ───────────────────────────────────────────────────────────
+  function showLoader(text="Analyzing...") {
+    document.getElementById("loader").style.display = "block";
+    document.getElementById("loader-text").textContent = text;
+    document.getElementById("results").style.display = "none";
+    document.getElementById("error-box").style.display = "none";
+  }
+  function hideLoader() { document.getElementById("loader").style.display = "none"; }
+  function showError(msg) {
+    hideLoader();
+    const b = document.getElementById("error-box");
+    b.textContent = "⚠️ " + msg;
+    b.style.display = "block";
+    b.style.maxWidth = "720px";
+    b.style.margin = "0 auto 16px";
+  }
+  function hideResults() {
+    document.getElementById("results").style.display = "none";
+    document.getElementById("error-box").style.display = "none";
+  }
+  function showResults() {
+    hideLoader();
+    document.getElementById("results").style.display = "block";
+  }
+
+  // ─── ANALYZE TICKER ────────────────────────────────────────────────────────
+  async function analyzeTicker() {
+    const ticker = document.getElementById("ticker-input").value.trim().toUpperCase();
+    if (!ticker) return;
+    const btn = document.getElementById("ticker-btn");
+    btn.disabled = true;
+    showLoader("Fetching SEC filings for " + ticker + "...");
+
+    try {
+      // Fetch analysis
+      const res = await fetch(`${API}/api/analyze-ticker/${ticker}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Failed to fetch data");
+      }
+      const data = await res.json();
+
+      // Fetch stock chart
+      const stockRes = await fetch(`${API}/api/stock/${ticker}?period=1y`);
+      const stockData = stockRes.ok ? await stockRes.json() : null;
+
+      renderTickerResult(data, stockData);
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ─── ANALYZE PDF ──────────────────────────────────────────────────────────
+  async function analyzePDF() {
+    if (!pdfFile) return;
+    const btn = document.getElementById("pdf-btn");
+    btn.disabled = true;
+    showLoader("Extracting text and running FinBERT...");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", pdfFile);
+      const res = await fetch(`${API}/api/analyze-pdf`, { method: "POST", body: formData });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Analysis failed");
+      }
+      const data = await res.json();
+      renderPDFResult(data);
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ─── RENDER PDF RESULT ────────────────────────────────────────────────────
+  function renderPDFResult(data) {
+    const a = data.analysis;
+    document.getElementById("ticker-result").style.display = "none";
+    document.getElementById("pdf-result").style.display = "block";
+
+    const scoreColor = a.score > 0.1 ? "positive" : a.score < -0.1 ? "negative" : "neutral";
+    document.getElementById("pdf-scores").innerHTML = `
+      <div class="score-box"><div class="val ${scoreColor}">${(a.score > 0 ? "+" : "") + a.score.toFixed(3)}</div><div class="lbl">Composite Score</div></div>
+      <div class="score-box"><div class="val ${scoreColor}">${a.label.toUpperCase()}</div><div class="lbl">Sentiment</div></div>
+      <div class="score-box"><div class="val">${a.confidence}%</div><div class="lbl">Confidence</div></div>
+      <div class="score-box"><div class="val">${a.chunks_analyzed}</div><div class="lbl">Sections Analyzed</div></div>
+    `;
+
+    if (pdfChartInst) pdfChartInst.destroy();
+    pdfChartInst = new Chart(document.getElementById("pdf-chart"), {
+      type: "doughnut",
+      data: {
+        labels: ["Positive", "Negative", "Neutral"],
+        datasets: [{ data: [a.positive_pct, a.negative_pct, a.neutral_pct],
+          backgroundColor: ["#22c55e","#ef4444","#f59e0b"], borderWidth: 0 }]
+      },
+      options: { plugins: { legend: { labels: { color: "#7b82a8" } } }, cutout: "65%" }
+    });
+
+    renderPills("pdf-risks", a.risk_keywords, "pill-risk", "⚠️ Risk Signals");
+    renderPills("pdf-positives", a.positive_keywords, "pill-pos", "✅ Positive Signals");
+    renderPills("pdf-guidance", a.guidance_signals, "pill-guide", "📌 Guidance Signals");
+
+    showResults();
+  }
+
+  // ─── RENDER TICKER RESULT ─────────────────────────────────────────────────
+  function renderTickerResult(data, stockData) {
+    document.getElementById("pdf-result").style.display = "none";
+    document.getElementById("ticker-result").style.display = "block";
+    document.getElementById("ticker-title").textContent = `${data.ticker} — ${data.results.length} Filings Analyzed`;
+
+    // Stock price chart
+    if (stockChartInst) stockChartInst.destroy();
+    if (stockData && stockData.history) {
+      const labels = stockData.history.map(d => d.date);
+      const prices = stockData.history.map(d => d.close);
+      stockChartInst = new Chart(document.getElementById("stock-chart"), {
+        type: "line",
+        data: {
+          labels,
+          datasets: [{ label: data.ticker, data: prices, borderColor: "#4f8ef7",
+            backgroundColor: "rgba(79,142,247,0.08)", fill: true, tension: 0.3, pointRadius: 0 }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: "#7b82a8", maxTicksLimit: 8 }, grid: { color: "#2e3250" } },
+            y: { ticks: { color: "#7b82a8" }, grid: { color: "#2e3250" } }
+          }
+        }
+      });
+    }
+
+    // Sentiment trend
+    if (sentimentChartInst) sentimentChartInst.destroy();
+    const trendLabels = data.results.map(r => r.date);
+    const trendScores = data.results.map(r => r.sentiment.score);
+    sentimentChartInst = new Chart(document.getElementById("sentiment-trend-chart"), {
+      type: "bar",
+      data: {
+        labels: trendLabels,
+        datasets: [{ label: "Sentiment Score", data: trendScores,
+          backgroundColor: trendScores.map(s => s > 0 ? "rgba(34,197,94,0.7)" : "rgba(239,68,68,0.7)"),
+          borderRadius: 6 }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: "#7b82a8" }, grid: { color: "#2e3250" } },
+          y: { ticks: { color: "#7b82a8" }, grid: { color: "#2e3250" }, min: -1, max: 1 }
+        }
+      }
+    });
+
+    // Filing cards
+    const container = document.getElementById("filing-cards");
+    container.innerHTML = "";
+    data.results.forEach(r => {
+      const s = r.sentiment;
+      const st = r.stock;
+      const c = r.correlation;
+      const scoreClass = s.score > 0.1 ? "positive" : s.score < -0.1 ? "negative" : "neutral";
+      const verdictColor = c.verdict === "Strong alignment" ? "#22c55e" : c.verdict === "Partial alignment" ? "#f59e0b" : "#ef4444";
+
+      const stockHtml = st && !st.error ? `
+        <div class="stock-grid" style="margin-top:12px">
+          <div class="stock-box"><div class="sval">$${st.base_price}</div><div class="slbl">Filing Day</div></div>
+          <div class="stock-box"><div class="sval ${st.change_1d_pct >= 0 ? 'positive':'negative'}">${st.change_1d_pct > 0 ? '+' : ''}${st.change_1d_pct}%</div><div class="slbl">+1 Day</div></div>
+          <div class="stock-box"><div class="sval ${st.change_7d_pct >= 0 ? 'positive':'negative'}">${st.change_7d_pct > 0 ? '+' : ''}${st.change_7d_pct}%</div><div class="slbl">+7 Days</div></div>
+        </div>` : "";
+
+      const riskHtml = s.risk_keywords.length ? `<div style="margin-top:10px">${s.risk_keywords.map(k=>`<span class="pill pill-risk">${k}</span>`).join(" ")}</div>` : "";
+
+      container.innerHTML += `
+        <div class="filing-card">
+          <div class="filing-header">
+            <span class="filing-badge">${r.filing_type}</span>
+            <span class="filing-date">${r.date}</span>
+          </div>
+          <div class="score-grid" style="grid-template-columns:repeat(3,1fr);gap:8px">
+            <div class="score-box"><div class="val ${scoreClass}">${(s.score>0?"+":"")+s.score.toFixed(3)}</div><div class="lbl">Score</div></div>
+            <div class="score-box"><div class="val ${scoreClass}">${s.label.toUpperCase()}</div><div class="lbl">Sentiment</div></div>
+            <div class="score-box"><div class="val">${s.confidence}%</div><div class="lbl">Confidence</div></div>
+          </div>
+          ${stockHtml}
+          <div class="verdict-row" style="margin-top:12px">
+            <div class="verdict-dot" style="background:${verdictColor}"></div>
+            <span>Signal-Price ${c.verdict}</span>
+          </div>
+          ${riskHtml}
+        </div>`;
+    });
+
+    showResults();
+  }
+
+  // ─── PILLS HELPER ─────────────────────────────────────────────────────────
+  function renderPills(id, items, cls, title) {
+    const el = document.getElementById(id);
+    if (!items || !items.length) { el.innerHTML = ""; return; }
+    el.innerHTML = `<h3>${title}</h3><div class="pills">${items.map(k=>`<span class="pill ${cls}">${k}</span>`).join("")}</div>`;
+  }
+
+  // ─── ENTER KEY ────────────────────────────────────────────────────────────
+  document.getElementById("ticker-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") analyzeTicker();
+  });
+</script>
+</body>
+</html>
